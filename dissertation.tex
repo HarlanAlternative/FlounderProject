@@ -1,0 +1,146 @@
+% --------------------------------------------------------------------------------------
+%   MPS/MDS DISSERTATION — Hierarchical short-term generation forecasting
+%   Built on the University of Auckland LaTeX dissertation template.
+%
+%   Chapters live in chapters/*.tex and are pulled in with \include so that each can be
+%   drafted and compiled on its own. To compile only one chapter while drafting, put its
+%   name in \includeonly{} below.
+% --------------------------------------------------------------------------------------
+\documentclass[11pt]{book}
+
+\usepackage{amsfonts, amsmath, amssymb}
+\usepackage{times}
+% times loads Courier for 	exttt, and this TinyTeX install has no Courier metrics,
+% which makes every erb in the text a fatal error. Computer Modern typewriter ships
+% with every distribution, so use that instead; body text stays Times. Remove this
+% line if the machine has the courier package installed.
+\renewcommand{\ttdefault}{cmtt}
+\usepackage{graphicx}
+\DeclareGraphicsExtensions{.pdf,.png,.jpg}
+\graphicspath{{figures/}}
+
+% Tables in this dissertation are wide and numerous; booktabs gives them proper rules and
+% longtable lets the per-experiment inventories run across pages.
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+
+% Page geometry copied verbatim from the supplied template so the layout is unchanged.
+\setlength{\oddsidemargin}{1.5cm}
+\setlength{\evensidemargin}{0cm}
+\setlength{\topmargin}{1mm}
+\setlength{\headheight}{1.36cm}
+\setlength{\headsep}{1.00cm}
+\setlength{\textheight}{19cm}
+\setlength{\textwidth}{14.5cm}
+\setlength{\marginparsep}{1mm}
+\setlength{\marginparwidth}{3cm}
+\setlength{\footskip}{2.36cm}
+
+% ---- Shorthands used throughout ----
+% Percentages in this work are always "relative MAE change against a stated reference",
+% so the reference is written into the macro rather than left to the reader.
+\newcommand{\naiveA}{seasonal naive-48}
+\newcommand{\naiveB}{seasonal naive-336}
+\newcommand{\pp}{percentage points}
+
+\begin{document}
+\pagestyle{empty}
+
+%: ----------------------------------------------------------------------
+%:                  TITLE PAGE
+%: ----------------------------------------------------------------------
+\begin{center}
+
+\vspace{1cm}
+
+{\Huge Hierarchical Short-Term Forecasting of\\[2mm] Hydro and Geothermal Generation}
+
+\vspace{10mm}
+
+{\Large A Comparison of a Gradient-Boosting Pipeline\\ and a Neural Expert System}
+
+\vspace{20mm}
+
+\includegraphics[width=2cm]{logo}
+
+\vspace{35mm}
+
+{\Large Haoran Haoran}   % TODO confirm the exact name to print
+
+\vspace{1ex}
+
+School of Computer Science
+
+The University of Auckland
+
+\vspace{5ex}
+
+Supervisor: TODO supervisor name
+
+\vspace{30mm}
+
+A dissertation submitted in partial fulfillment of the requirements for the degree of
+Master of Professional Studies in Data Science, The University of Auckland, 2026.
+% TODO delete whichever degree does not apply (MPS in Data Science / Master of Data Science)
+
+\end{center}
+
+\newpage
+
+%: --------------------------------------------------------------
+%:                  FRONT MATTER
+%: --------------------------------------------------------------
+\include{chapters/abstract}
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{2}
+\tableofcontents
+
+%: --------------------------------------------------------------
+%:                  MAIN BODY
+%: --------------------------------------------------------------
+\include{chapters/01_introduction}
+\include{chapters/02_data}
+\include{chapters/03_methodology}
+\include{chapters/04_experiments}
+\include{chapters/05_results}
+\include{chapters/06_discussion}
+\include{chapters/07_conclusions}
+
+% --------------------------------------------------------------
+\renewcommand{\bibname}{References}
+\begin{thebibliography}{99}
+\addcontentsline{toc}{chapter}{References}
+
+\bibitem{Hyndman2011} Hyndman Rob J., Ahmed Roman A., Athanasopoulos George, Shang Han Lin,
+{\em Optimal Combination Forecasts for Hierarchical Time Series},
+Computational Statistics and Data Analysis volume 55, pages 2579--2589, 2011.
+
+\bibitem{Wickramasuriya2019} Wickramasuriya Shanika L., Athanasopoulos George, Hyndman Rob J.,
+{\em Optimal Forecast Reconciliation for Hierarchical and Grouped Time Series Through
+Trace Minimization}, Journal of the American Statistical Association volume 114,
+pages 804--819, 2019.
+
+\bibitem{Schafer2005} Sch\"afer Juliane, Strimmer Korbinian,
+{\em A Shrinkage Approach to Large-Scale Covariance Matrix Estimation and Implications
+for Functional Genomics}, Statistical Applications in Genetics and Molecular Biology
+volume 4, article 32, 2005.
+
+\bibitem{Ke2017} Ke Guolin, Meng Qi, Finley Thomas, Wang Taifeng, Chen Wei, Ma Weidong,
+Ye Qiwei, Liu Tie-Yan, {\em LightGBM: A Highly Efficient Gradient Boosting Decision Tree},
+Advances in Neural Information Processing Systems volume 30, 2017.
+
+\bibitem{HyndmanKoehler2006} Hyndman Rob J., Koehler Anne B.,
+{\em Another Look at Measures of Forecast Accuracy},
+International Journal of Forecasting volume 22, pages 679--688, 2006.
+
+% TODO add: THP-Former / the transformer-family references for the nine candidate
+% architectures, plus the ECMWF and EMI/POCP data source citations.
+
+\end{thebibliography}
+
+\appendix
+\include{chapters/A_appendix}
+
+\end{document}

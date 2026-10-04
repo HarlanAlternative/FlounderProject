@@ -1,0 +1,545 @@
+\chapter{Experiments}
+\label{ch:experiments}
+
+This chapter describes every experiment carried out, in the order in which the questions
+arose. It is deliberately complete rather than selective: configurations that were
+rejected are reported alongside those that were adopted, because several of the rejections
+are the most informative results in the work. Chapter~\ref{ch:results} then reports what
+the experiments produced.
+
+Section~\ref{sec:protocol} fixes the protocol that every experiment obeys, since the
+protocol is what makes the individual results comparable. Sections~\ref{sec:exp-arch}
+to~\ref{sec:exp-tuning} then work through the five groups of experiments:
+architecture selection, covariate selection, forecast reconciliation, forecast horizon,
+and hyperparameter tuning.
+
+%---------------------------------------------------------------------------------------
+\section{Experimental protocol}
+\label{sec:protocol}
+
+\subsection{Why a single validation block was not enough}
+
+The first version of this work selected covariates on one contiguous validation block.
+That turned out to invert the answer. Eleven candidate feature sets were ranked on the
+validation block and then re-ranked on the test period, and \emph{the two orderings were
+completely reversed}: the most valuable family, per-station weather at the generating
+plants, ranked eighth of eleven on validation and first on test.
+
+The cause was seasonal. The validation block spanned summer, and almost all of the value
+of weather information sits in winter, when wind and inflow drive dispatch. A single
+block therefore measures the season it happens to cover, not the covariate.
+
+Every experiment reported below consequently uses four-fold cross-season validation.
+
+\subsection{Four-fold cross-season validation}
+
+Each fold trains on an expanding window and evaluates on the three months that follow it.
+The four evaluation windows are spaced one quarter apart so that between them they cover
+all four seasons:
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{clll}
+\toprule
+{\bf Fold} & {\bf Train window ends} & {\bf Evaluation window} & {\bf Training origins} \\
+\midrule
+1 & 2025-04-15 & 2025-04-15 to 2025-07-15 & 3,114 \\
+2 & 2025-07-15 & 2025-07-15 to 2025-10-15 & 3,296 \\
+3 & 2025-10-15 & 2025-10-15 to 2026-01-15 & 3,480 \\
+4 & 2026-01-15 & 2026-01-15 to 2026-04-15 & 3,664 \\
+\bottomrule
+\end{tabular}
+\caption[Cross-validation folds]{\textbf{The four cross-validation folds.} All four
+evaluation windows end on or before 2026-04-15, the first day of the test period, so no
+fold can see test data. Training windows expand rather than slide, which is why the origin
+count grows.}
+\label{tab:folds}
+\end{table}
+
+Training origins are taken every twelve hours within the training window; evaluation
+origins are taken once per day, and only where all 48 forecast steps fall inside the
+evaluation window. Each origin expands into $48 \times 19 = 912$ rows, one per forecast
+step per node.
+
+\subsection{The decision rule: sign consistency, not the mean}
+\label{sec:signrule}
+
+A configuration is accepted only if it improves on the reference in \emph{all four folds}.
+The four-fold mean is reported but is not the criterion.
+
+The reason is that the per-fold differences are small relative to their own scatter.
+Repeated measurements established a noise floor of approximately
+$\pm 0.6$~\pp: below that, a single fold's number carries no interpretable information.
+Several configurations produced four-fold means inside that floor while disagreeing in
+sign between folds, and those are exactly the cases where a mean would mislead.
+
+Sign consistency across four independent seasons is a sign test: under a null hypothesis
+of pure noise, four same-signed differences occur with probability $1/16$. Its power does
+not depend on the size of the effect, which is what makes it usable at this effect size.
+Where a configuration passes the sign test but its mean falls inside the noise floor, that
+is stated explicitly and the conclusion is confirmed independently on the test period.
+
+\subsection{Two aggregations that must never be mixed}
+\label{sec:aggregation}
+
+Every percentage in this work is a relative change in mean absolute error against a stated
+reference. Two different aggregations appear, and they answer different questions:
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{p{4.2cm}p{6.3cm}r}
+\toprule
+{\bf Where it is used} & {\bf How errors are aggregated} & {\bf Example} \\
+\midrule
+Cross-validation tables & Per node first, then the 19 nodes weighted equally & --- \\
+Test-period tables & All errors pooled into one MAE; large nodes dominate & 9,240 \\
+\bottomrule
+\end{tabular}
+\caption[The two aggregations]{\textbf{The two aggregations.} For the delivered model the
+pooled MAE is 9{,}240~kWh per half hour while the median of the 19 per-node MAEs is
+4{,}879 --- a factor of 1.9. Three large aggregate nodes account for the gap. Quoting one
+number against the other would look like a large effect where there is none.}
+\label{tab:aggregation}
+\end{table}
+
+\subsection{Three reference points}
+
+Results are reported against three references, chosen so that each isolates a different
+claim:
+
+\begin{enumerate}
+\item \textbf{\naiveA{}} --- the value observed 48 half-hours (24 hours) earlier. This is
+the operational fallback and the denominator of MASE.
+\item \textbf{The same model with no covariates} --- isolates the contribution of external
+information from the contribution of the model class.
+\item \textbf{That round's own baseline configuration} --- isolates the single change under
+test, with every other choice held fixed.
+\end{enumerate}
+
+A fourth reference, \naiveB{} (the value one week earlier), is reported in the final
+tables because it is the harder benchmark for a weekly-seasonal series.
+
+\subsection{Uncertainty: paired bootstrap by forecast origin}
+\label{sec:bootstrap}
+
+The test period supplies 107 forecast origins. Each origin is an approximately independent
+observation of forecast skill, so a single point estimate understates what is known and
+overstates what is settled.
+
+For every comparison, the errors within an origin are first averaged, giving 107 paired
+observations; those pairs are then resampled 2,000 times. Pairing matters: two methods
+compared on the same origin face the same day, so pairing removes the shared
+``was that day easy or hard to forecast'' component, which is the dominant source of
+variation. An interval that excludes zero is reported as a reliable difference; one that
+straddles zero is reported as evidence insufficient, whatever the point estimate.
+
+\subsection{Leakage discipline}
+
+Covariates are named by the information they carry rather than by their source, so that a
+leak is visible in the feature name:
+
+\begin{itemize}
+\item \verb+_at_origin+ --- the value known at the moment the forecast is issued;
+\item \verb+_at_target+ --- the value at the time being forecast, admissible only for
+quantities that are genuinely forecast and published ahead of time, such as numerical
+weather prediction fields;
+\item \verb+_change+ --- the difference between the two above;
+\item \verb+_vs_yesterday+ --- the change against the same clock time one day earlier.
+\end{itemize}
+
+Families that are only ever observed, never forecast, are marked \verb+ORIGIN_ONLY+ and
+may not appear with an \verb+_at_target+ suffix. This is enforced in the feature builder
+rather than left to discipline.
+
+A second rule follows from the model class. Gradient-boosted trees cannot extrapolate
+beyond the range of a feature seen in training. Level quantities are therefore dangerous
+whenever the future range can exceed the historical one --- a newly commissioned plant is
+the obvious case --- whereas ratios and changes stay inside their historical range. Where
+a level is needed it enters as a ratio to a long-run reference.
+
+%---------------------------------------------------------------------------------------
+\section{Architecture selection: nine candidates and the expert system}
+\label{sec:exp-arch}
+
+\subsection{Provenance of the code}
+
+The expert system was written by a fellow student, Guoping, and made available through
+GitHub. It was not modified for the experiments in this section: the code was run as
+supplied, on the same node hierarchy, the same test period, and the same 107 forecast
+origins as the pipeline of Section~\ref{sec:exp-cov}, so that the two systems are directly
+comparable. Every number reported for it in this dissertation was produced by running that
+code; the design of the system is his, and the analysis and discussion of its behaviour
+are mine.
+
+\subsection{What the system does}
+
+The system trains nine candidate forecasters and then, for each of the 19 nodes, selects
+the single candidate that performed best on a validation period. A tenth candidate,
+\naiveA{}, is always available without training. The per-node choices are then passed
+through a learned bottom-up network (referred to below as BUN) which restores hierarchical
+coherence.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{ll}
+\toprule
+{\bf Candidate} & {\bf Family} \\
+\midrule
+THP-Former & transformer, hierarchy-aware \\
+PatchTST & transformer, patched input \\
+TSMixer & all-MLP mixer \\
+TiDE & dense encoder--decoder \\
+NLinear & linear with normalisation \\
+TCN & dilated temporal convolution \\
+RNN, LSTM, GRU & recurrent \\
+\midrule
+\naiveA{} & no training; always eligible \\
+\bottomrule
+\end{tabular}
+\caption[Candidate architectures]{\textbf{The nine trained candidate architectures},
+spanning the transformer, MLP, convolutional and recurrent families, plus the untrained
+seasonal-naive fallback.}
+\label{tab:candidates}
+\end{table}
+
+\subsection{Experiments run on the expert system}
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{llp{6.1cm}}
+\toprule
+{\bf Run} & {\bf Window} & {\bf Question} \\
+\midrule
+\verb+expert_system+ & from 2023 & baseline behaviour \\
+\verb+expert_system_2021+ & from 2021 & does a longer history help? \\
+\verb+expert_system_2021_cov+ & from 2021 & do the 24 external covariates help? \\
+\verb+diag_A_pocp+ & from 2021 & one clean covariate: plant availability \\
+\verb+diag_B_ecm+ & from 2021 & one clean covariate: ECMWF weather \\
+\bottomrule
+\end{tabular}
+\caption[Expert-system runs]{\textbf{The five expert-system runs.} The last two are
+diagnostic: each supplies a single covariate column that is complete for all 19 nodes and
+needs no imputation, in order to test whether the loss of accuracy under covariates was
+caused by missing-value imputation.}
+\label{tab:es-runs}
+\end{table}
+
+The 2021 run is the one used for all comparisons in Chapter~\ref{ch:results}, because it
+matches the data window of the gradient-boosting pipeline. The diagnostic runs
+\verb+diag_A_pocp+ and \verb+diag_B_ecm+ were added after the covariate runs produced a
+result that contradicted the covariate findings of Section~\ref{sec:exp-cov}; their purpose
+is described in Section~\ref{sec:exp-cov-es}.
+
+%---------------------------------------------------------------------------------------
+\section{Covariate selection: twenty-two cross-validation rounds}
+\label{sec:exp-cov}
+
+This is the largest group of experiments. Each round tests one question with every other
+choice held fixed, and each round's baseline is re-run inside the same execution as its
+variants. That last point is not a formality: an earlier pair of rounds that shared a
+configuration name but were executed separately disagreed by 0.1 to 1.0~\pp{} on the
+aggregate nodes, which is the same order as the effects being measured. Comparisons are
+therefore only ever made within a single run.
+
+\subsection{Constraints imposed by the supervisors}
+
+Two constraints were given at the outset and are respected throughout:
+
+\begin{enumerate}
+\item Certain variables were specified by the supervisors as required, and are
+\emph{locked}: they are never candidates for elimination, whatever a round reports about
+them.
+\item Different generator types use different variables. Results must therefore be read
+per generator category, not as a median over all 19 nodes --- a variable that matters to
+hydro and is irrelevant to geothermal will look like noise in a 19-node median.
+\end{enumerate}
+
+The second constraint is implemented as per-type gating. Each feature family declares the
+node types it is allowed to reach; where a family does not apply to a node, the value is
+masked as missing rather than set to zero, so that the model can distinguish
+``not applicable'' from ``zero''. Two gating modes were tested: \verb+strict+, where a
+family reaches only its own generator type, and \verb+dispatch+, where wind information is
+also given to hydro because the two compete in the same dispatch stack.
+
+\subsection{Inventory of rounds}
+
+\begin{longtable}{clp{7.0cm}}
+\caption[Cross-validation rounds]{\textbf{The twenty-two cross-validation rounds.}
+Rounds 1--3 ran on the 2023 data window; rounds 4 onward ran on the extended 2021 window,
+which required the no-covariate baseline to be re-run because the baseline also benefits
+from the longer history.}
+\label{tab:rounds} \\
+\toprule
+{\bf Round} & {\bf Configurations} & {\bf Question} \\
+\midrule
+\endfirsthead
+\toprule
+{\bf Round} & {\bf Configurations} & {\bf Question} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+1 & 7 & Which weather source, and does hydrology help at all? \\
+2 & 4 & Company-level hydro, storage, lake level, and weather combined with it \\
+3 & 5 & Seasonal terms, a one-year principal component, seven-day changes \\
+4 & 6 & Repeat of the survivors on the longer 2021 history \\
+5 & 3 & Full set, and per-node gating for the first time \\
+6 & 2 & Gating in \verb+dispatch+ mode rather than \verb+strict+ \\
+7 & 2 & Forecast horizon other than 48 steps (see Section~\ref{sec:exp-horizon}) \\
+8 & 2 & Availability versus the raw POCP channel \\
+9 & 4 & Supervisor-specified families, one at a time \\
+10 & 1 & Those families combined \\
+12 & 7 & First backward-elimination pass: remove one family at a time \\
+13 & 4 & Second backward-elimination pass on the survivors \\
+14 & 3 & Hydrology v4: which of its three groupings \\
+15 & 4 & The two remaining supervisor-specified columns \\
+16 & 4 & Aggregate-node weather split into wind and non-wind \\
+17 & 3 & Hierarchy features (parent and sibling) ablated \\
+18 & 5 & Full aggregate-node ladder, superseding rounds 16 and 18's predecessors \\
+19 & 6 & What each stage of the selection process is worth \\
+20 & 2 & What the manual per-type assignment is worth \\
+21 & 4 & Five additional weather variables, added rather than removed \\
+22 & 2 & South Island snowpack \\
+\end{longtable}
+
+Three features of this table are worth drawing out.
+
+\textbf{Rounds 12 and 13 are backward elimination.} Rather than adding families and
+keeping whatever improves, which rewards whichever family happens to be tested first, each
+family is removed from the full set in turn and the damage measured. A family earns its
+place if removing it hurts in all four folds.
+
+\textbf{Round 18 replaced rounds 16 and its predecessor.} The two earlier rounds had been
+executed separately, and their shared baseline configuration disagreed between runs. Round
+18 puts the baseline and all four variants into a single execution so that the ladder is
+internally consistent. The superseded rounds are retained in the code and in
+Appendix~\ref{ch:appendix} rather than deleted.
+
+\textbf{Round 17 exposed a discrepancy between the measured and the delivered model.} The
+hierarchy features --- a node's parent and sibling values --- had never been enabled in any
+cross-validation round, because the default in the round runner was off, whereas the
+delivered model has them on. Rounds 1--16 therefore measured an 84-feature model while the
+delivered model has 89 features. Round 17 was added to ablate them. This discrepancy is
+recorded rather than papered over, and the hyperparameter search of
+Section~\ref{sec:exp-tuning} was deliberately run with the features enabled, so that it
+tunes the model that is actually delivered.
+
+\subsection{Rounds 21 and 22: two additions that were rejected}
+\label{sec:exp-negative}
+
+Two rounds tested enlarging the candidate pool rather than pruning it, and both were
+rejected. They are reported because the asymmetry matters: when the question is
+``should this be added?'', insufficient evidence means \emph{do not add}, whereas when the
+question is ``should this be removed?'', insufficient evidence means \emph{keep}.
+
+Round 21 added five further weather variables --- cloud cover, radiation, dew point,
+evapotranspiration and soil moisture --- in three combinations. Round 22 added a South
+Island snowpack estimate. The snowpack experiment was prompted by a specific observation:
+the existing snow family covered only the Taupo and Waikato catchments, which have had
+essentially no snow since 2021, so that family had been acting as a constant plus a trend
+rather than as snow information. The South Island catchments do accumulate snow, so the
+family was rebuilt there using a degree-day melt model.
+
+\subsection{Why the covariate experiments were also run on the expert system}
+\label{sec:exp-cov-es}
+
+Feeding the same 24 covariate columns to the expert system made it worse, which
+contradicts Section~\ref{sec:exp-cov}. Two explanations were available: the covariates
+themselves, or the path by which they enter that particular system.
+
+The diagnostic runs in Table~\ref{tab:es-runs} discriminate between them. Each supplies a
+single covariate column that is complete across all 19 nodes and therefore needs no
+imputation at all. If imputation of missing values were the cause, these runs should be
+unharmed. This is reported in Chapter~\ref{ch:results}.
+
+%---------------------------------------------------------------------------------------
+\section{Reconciliation}
+\label{sec:exp-recon}
+
+\subsection{The four reconcilers}
+
+All four reconcilers used here are linear projections of the base forecast vector and can
+be written in one form,
+\begin{eqnarray}\label{eqn:recon}
+\hat{y}_{\mathrm{rec}} = S\left(S^{\top} W^{-1} S\right)^{-1} S^{\top} W^{-1}\, \hat{y},
+\end{eqnarray}
+where $S$ is the $19 \times 15$ summing matrix and the choice of $W$ distinguishes the
+methods: the identity for OLS, the diagonal of residual variances for WLS, and the full
+residual covariance for MinT. Bottom-up is the degenerate case in which only the 15 leaf
+forecasts are used and the aggregates are recomputed from them.
+
+For MinT the covariance is estimated with Schäfer--Strimmer shrinkage towards its
+diagonal, with the shrinkage intensity determined analytically from the residuals rather
+than tuned. All reconciliation weights are estimated on validation-period residuals; the
+test period is never used to fit them.
+
+\subsection{Experiments on the reconciliation layer}
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{p{4.6cm}p{8.4cm}}
+\toprule
+{\bf Experiment} & {\bf Question} \\
+\midrule
+Four reconcilers, both systems & Which projection, and is the ordering the same for a
+gradient-boosting base and a neural base? \\
+Re-run after every base change & Does the ordering survive a change of base model, given
+that the residual covariance is re-estimated? \\
+Learned BUN versus classical MinT & Is a learned bottom-up network better than a
+closed-form projection? \\
+Horizon-grouped weights & Should $W$ be estimated separately for groups of forecast steps,
+given that the error correlation structure changes with lead time? \\
+Negative-forecast audit & How often does each projection produce negative generation, which
+is physically impossible? \\
+\bottomrule
+\end{tabular}
+\caption[Reconciliation experiments]{\textbf{Experiments on the reconciliation layer.}}
+\label{tab:recon-exp}
+\end{table}
+
+The horizon-grouped experiment deserves its protocol spelled out, because selecting the
+grouping granularity is itself a selection problem. A single $W$ currently covers all 48
+forecast steps, pooling $105 \times 48 = 5{,}040$ residual vectors. But at one step ahead
+the errors are dominated by persistence and are strongly aligned across nodes, whereas at
+48 steps they are dominated by weather and dispatch uncertainty with a different
+correlation structure. Five granularities were tested, from one pooled $W$ down to one per
+forecast step.
+
+The granularity was selected using the validation period alone, split into two halves
+chronologically: $W$ estimated on the first half and scored on the second, then the
+reverse. The test period was used only once, afterwards. As reported in
+Chapter~\ref{ch:results}, this selection design has a flaw that the results exposed, and
+that flaw is reported rather than hidden.
+
+%---------------------------------------------------------------------------------------
+\section{Forecast horizon}
+\label{sec:exp-horizon}
+
+The supervisors asked whether the pipeline extends from ``the next day'' to ``the next two
+weeks''. The horizon is a configuration parameter, and round 7 re-ran the no-covariate
+baseline and the best covariate configuration at horizons other than 48 steps.
+
+Because each origin expands into $\mathrm{horizon} \times 19$ rows, a fourteen-day horizon
+produces fourteen times the rows per origin. The origin stride was widened in proportion
+so that the total training set stays the same order of magnitude; otherwise the comparison
+would confound horizon length with training-set size.
+
+%---------------------------------------------------------------------------------------
+\section{Hyperparameter tuning}
+\label{sec:exp-tuning}
+
+Until this point the LightGBM hyperparameters had never been tuned; they were hand-set
+values. Two rounds of search were run, on the four cross-validation folds only.
+
+\subsection{Round one: a random sample around the hand-set values}
+
+Six parameters were varied over three levels each, centred on the hand-set values. The
+full grid is $3^6 = 729$ configurations at three to five minutes per configuration per
+fold, which is not affordable, so the search was staged: sixteen configurations were
+sampled at random and screened on two folds chosen for maximum seasonal contrast, and the
+best three plus the incumbent were then re-run on all four folds.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lll}
+\toprule
+{\bf Parameter} & {\bf Levels} & {\bf Controls} \\
+\midrule
+\verb+learning_rate+ & 0.03 / 0.06 / 0.10 & step size per tree \\
+\verb+num_leaves+ & 63 / 127 / 255 & model complexity ceiling \\
+\verb+min_data_in_leaf+ & 100 / 200 / 400 & minimum support per leaf \\
+\verb+feature_fraction+ & 0.70 / 0.85 / 1.00 & features sampled per tree \\
+\verb+bagging_fraction+ & 0.70 / 0.85 / 1.00 & rows sampled per tree \\
+\verb+lambda_l2+ & 0.5 / 1.0 / 5.0 & L2 penalty \\
+\bottomrule
+\end{tabular}
+\caption[Search space, round one]{\textbf{Round-one search space.} The middle level of
+each parameter is the hand-set value, which was included in the sample so that the gain
+from tuning could be read directly.}
+\label{tab:space1}
+\end{table}
+
+\subsection{Round two: extending the grid outwards}
+
+The three best configurations of round one all sat on a boundary of the grid, which means
+the optimum may lie outside it. Round two extended the two directions that showed a real
+effect and locked the four that did not, testing thirteen configurations.
+
+Locking those four required an argument, because a naive reading of the round-one data
+suggested otherwise. The marginal mean of \verb+bagging_fraction+ showed a monotone
+0.71~\pp{} effect favouring 1.00. That effect is an artefact of the random sample: the
+value 0.70 occurred only alongside the worst learning rate and the value 1.00 never
+occurred alongside it, so the apparent effect is the learning rate leaking through. Within
+the one homogeneous group large enough to check, the effect shrinks to 0.13~\pp{}. The
+lesson --- that marginal means from a small random sample are not interpretable until
+co-occurrence has been checked --- is taken up in Chapter~\ref{ch:discussion}.
+
+\subsection{A confound that had to be removed first}
+
+Early stopping used a fixed patience of 100 rounds. At a learning rate of 0.005 each round
+advances one sixth as far as at 0.03, so a fixed patience is a systematically stricter
+stopping rule at low learning rates: a configuration could look bad merely because it was
+cut off early. Since the entire purpose of round two was to push the learning rate down,
+the patience was scaled in proportion to $1/\eta$, anchored so that configurations at or
+above the round-one winner's learning rate keep the original patience of 100 and remain
+comparable with round one.
+
+In round one the same fixed patience had penalised low learning rates, and the low
+learning rate won regardless; that bias therefore made the round-one conclusion
+conservative rather than optimistic.
+
+\subsection{The early-stopping protocol mismatch}
+\label{sec:exp-esmismatch}
+
+Round two produced a configuration that won on cross-validation and then lost when
+deployed. Diagnosing that led to the most consequential experiment in this group.
+
+The tuning scripts and the delivery script early-stop on different data. The delivery
+script stops on a separate validation block of 105 origins; the tuning scripts stop on the
+last 15\% of the training window, roughly 970 origins. Both are defensible, but they are
+not the same rule, and the discrepancy grows as the learning rate falls, because a small
+stopping set gives a noisy validation curve that triggers earlier.
+
+The quantity that makes this legible is the product of the selected number of rounds and
+the learning rate, which measures how far the model actually trained:
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{llrr}
+\toprule
+{\bf Protocol} & {\bf Learning rate} & {\bf Rounds} & {\bf Rounds $\times \eta$} \\
+\midrule
+Cross-validation & 0.03 & 3,695 & 110.8 \\
+Cross-validation & 0.005 & 25,359 & 126.8 \\
+\midrule
+Delivery, validation block & 0.03 & 1,530 & 45.9 \\
+Delivery, validation block & 0.005 & 6,153 & 30.8 \\
+\midrule
+Delivery, training-window tail & 0.03 & 3,296 & 98.9 \\
+Delivery, training-window tail & 0.005 & 18,556 & 92.8 \\
+\bottomrule
+\end{tabular}
+\caption[Effective training budget]{\textbf{Effective training budget under each
+early-stopping protocol.} Under cross-validation the two learning rates receive
+comparable budgets, so the comparison is between learning rates. Under the original
+delivery protocol the lower learning rate receives a third less budget than the higher
+one, so the comparison is confounded with how far each model trained.}
+\label{tab:budget}
+\end{table}
+
+An experiment was therefore added: align the delivery script's early stopping with the
+cross-validation rule and re-train both configurations. Aligning the two rules has a
+second effect worth noting in advance. Under the original rule the validation period was
+used both to stop training and to produce the residuals from which the MinT covariance is
+estimated, which makes those residuals mildly optimistic. Under the aligned rule the model
+that produces the validation forecasts has never seen the validation period at all, so
+those residuals are genuinely out of sample.
+
+\subsection{Discipline on test-period use}
+
+Across the whole project the test period was evaluated for five model versions: before
+tuning, the round-one winner, the round-two winner, and those two winners again under the
+aligned early-stopping rule. The first three are required by the protocol. The last two
+were motivated entirely by Table~\ref{tab:budget}, which is diagnosable without reference
+to the test period, and not by searching for a version that scored better. No further
+test-period evaluation was performed after the fifth.

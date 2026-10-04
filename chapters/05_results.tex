@@ -1,0 +1,765 @@
+\chapter{Results}
+\label{ch:results}
+
+The delivered forecaster reaches a mean absolute error of 8,796~kWh per half-hour over the
+test period, 37.4\% below \naiveA{} and 56.3\% below \naiveB{}.
+Table~\ref{tab:headline} gives that result in full.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrrrrr}
+\toprule
+& {\bf MAE} & {\bf RMSE} & {\bf MASE} & {\bf sMAPE} & {\bf Coherence} \\
+\midrule
+\naiveA{} & 14,053 & 28,273 & 1.149 & 32.3 & 0 \\
+\naiveB{} & 20,117 & 38,419 & 2.011 & 41.9 & 0 \\
+Delivered model, unreconciled & 9,240 & 18,593 & 0.796 & 23.9 & 107,623 \\
+Delivered model with MinT & {\bf 8,796} & 16,954 & 0.821 & 24.7 & {\bf 0} \\
+\bottomrule
+\end{tabular}
+\caption[Headline test-period result]{\textbf{Test-period performance of the delivered
+forecaster.} MAE and RMSE are in kWh per half-hour, pooled over all
+$19 \times 107 \times 48 = 97{,}584$ forecast values. Coherence is the largest absolute
+discrepancy between a parent node's forecast and the sum of its children, so zero means
+the hierarchy is exactly self-consistent.}
+\label{tab:headline}
+\end{table}
+
+That single number is the end of a chain, and the chain is what this chapter reports. The
+experiments of Chapter~\ref{ch:experiments} were not a survey of independent questions run
+in parallel; each one was prompted by the result of the one before it, and several were
+prompted by a result that contradicted what had just been concluded. The sections below
+follow that order, and each closes with the question it hands to the next.
+
+The chain runs as follows. A first attempt at covariate selection gave an answer that the
+test period reversed, which forced the protocol to be rebuilt before any substantive
+question could be asked (Section~\ref{sec:res-protocol}). The rebuilt protocol then had to
+be calibrated, since a decision rule needs to know what counts as a difference. With a
+protocol in hand, the obvious first question was whether the forecasting problem wants a
+sophisticated architecture, and the answer from nine deep candidates was that it does not
+(Section~\ref{sec:res-arch}); that section also produced two results which changed how
+everything afterwards had to be measured and reported. Attention then moved to what the
+model is given rather than what the model is, and the covariate experiments found that
+restricting the information helped while accumulating it did not
+(Section~\ref{sec:res-cov}). Those experiments left the hierarchy internally inconsistent,
+which reconciliation was introduced to repair, at a price that only two of the four
+projections earn back (Section~\ref{sec:res-recon}). Two questions raised by the
+supervisors then had to be answered on the finished pipeline: whether it extends to a
+fortnight (Section~\ref{sec:res-horizon}), and what had been left on the table by never
+tuning the learner (Section~\ref{sec:res-tuning}). The last of those uncovered a defect in
+the training code which turned out to be worth more than the tuning it was found during.
+
+%---------------------------------------------------------------------------------------
+\section{The protocol, and the scale it established}
+\label{sec:res-protocol}
+
+\subsection{Why the protocol had to come first}
+
+The first version of this work ranked eleven candidate feature sets on a single contiguous
+validation block. Re-ranking the same eleven on the test period reversed the ordering
+completely: the family that proved most valuable, per-station weather at the generating
+plants, had ranked eighth of eleven on validation and ranked first on test. The cause was
+seasonal rather than statistical. The validation block spanned summer, and almost all of
+the value of weather information sits in winter, when wind and inflow drive dispatch. One
+block measures the season it happens to cover.
+
+A result that inverts under a change of evaluation window is not a result, so nothing else
+could be concluded until the evaluation itself was fixed. Four-fold cross-season validation
+replaced the single block, and every figure in this chapter rests on it.
+
+\subsection{What counts as a difference}
+
+A four-fold protocol still cannot decide anything without a scale. Re-running identical
+configurations across the folds, and re-running configurations whose only difference was
+execution order, put that scale at roughly $\pm 0.6$~\pp{} on the 19-node median.
+Differences smaller than that carry no information about the variable under test, however
+suggestive their sign.
+
+That number is why the decision rule rests on sign agreement across folds rather than on
+the four-fold mean. A mean of $-0.3$~\pp{} says nothing on its own. Four folds that
+independently agree in sign say a great deal, since under pure noise that happens one time
+in sixteen, and the strength of that argument does not depend on the size of the effect.
+Several of the changes adopted later in this chapter have means inside the noise floor and
+were accepted on sign agreement, then confirmed on the test period. Each case is flagged
+where it arises.
+
+With an evaluation that survives a change of window and a rule for reading it, the first
+substantive question could be asked: does this problem call for a sophisticated model?
+
+%---------------------------------------------------------------------------------------
+\section{Architecture: the answer is no, and two complications}
+\label{sec:res-arch}
+
+\subsection{None of the nine candidates beat the naive benchmark}
+
+Table~\ref{tab:arch} gives each of the nine trained architectures on its own. The spread
+is wide, from a linear model that matches \naiveA{} to a patched transformer three times
+worse than it, but the ordering matters less than the fact that no architecture clears the
+benchmark. NLinear, the simplest candidate, comes closest.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+& \multicolumn{2}{c}{\bf No covariates} & \multicolumn{2}{c}{\bf With 24 covariates} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+{\bf Architecture} & {\bf MAE} & {\bf vs \naiveA{}} & {\bf MAE} & {\bf vs \naiveA{}} \\
+\midrule
+NLinear & 13,990 & $-0.5$\% & 14,640 & $+4.2$\% \\
+TCN & 13,994 & $-0.4$\% & 18,311 & $+30.3$\% \\
+RNN & 14,115 & $+0.4$\% & 16,413 & $+16.8$\% \\
+LSTM & 14,723 & $+4.8$\% & 24,410 & $+73.7$\% \\
+GRU & 15,510 & $+10.4$\% & 19,861 & $+41.3$\% \\
+TiDE & 17,021 & $+21.1$\% & 56,067 & $+299.0$\% \\
+THP-Former & 18,503 & $+31.7$\% & 21,244 & $+51.2$\% \\
+TSMixer & 19,549 & $+39.1$\% & 19,969 & $+42.1$\% \\
+PatchTST & 30,511 & $+117.1$\% & 25,079 & $+78.5$\% \\
+\midrule
+\naiveA{} & 14,053 & --- & & \\
+Per-node selection & {\bf 12,873} & {\bf $-8.4$\%} & & \\
+\bottomrule
+\end{tabular}
+\caption[Nine architectures]{\textbf{The nine candidate architectures, each on its own.}
+A positive percentage means the architecture is worse than \naiveA{}. Candidates are
+trained inside the expert system, where early stopping ends three months earlier than in a
+standalone run and no reconciliation is applied, so these figures understate each
+architecture slightly: THP-Former trained standalone to completion reaches 14,986.}
+\label{tab:arch}
+\end{table}
+
+Two things follow immediately. The heavy use of \naiveA{} by the selector is not a defect
+of the selector: six of the nineteen nodes choose the untrained fallback because the
+candidate pool holds nothing better for those nodes. And per-node selection is where this
+system's accuracy comes from, 12,873 against 13,990 for the best single architecture.
+Choosing a different model for each node is worth roughly eight percentage points, far more
+than the choice among the nine.
+
+The answer to the question that opened this section is therefore no. Capacity is not the
+binding constraint on this problem, and the work that follows spends its effort on what the
+model is given rather than on what the model is.
+
+Before leaving the architecture experiments, two of their results have to be settled,
+because both of them govern how every later result is measured and reported.
+
+\subsection{Complication one: the advantage depends on which aggregation is quoted}
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrr}
+\toprule
+& {\bf Pooled MAE} & {\bf MASE} \\
+\midrule
+\naiveA{} & 14,053 & 1.149 \\
+Per-node selection & 12,873 & 1.149 \\
+With learned BUN & 13,102 & 1.203 \\
+\bottomrule
+\end{tabular}
+\caption[Two aggregations of the expert system]{\textbf{The same forecasts under two
+aggregations.} Pooled MAE weights each forecast value equally, so the three large aggregate
+nodes dominate. MASE normalises each node by its own training-period naive error and then
+weights the nodes equally. The 8.4\% advantage visible in the first column is absent from
+the second.}
+\label{tab:es-agg}
+\end{table}
+
+A MASE of 1.149 against the benchmark's 1.149 is not a near-tie but an exact one. All of
+the pooled-MAE advantage sits in the three large aggregate nodes, and once each node is
+normalised by its own difficulty and the nodes are weighted equally, nothing remains.
+
+This is the empirical reason for the rule stated in Section~\ref{sec:protocol} that the two
+aggregations must never be mixed. A reader given only the first column would conclude that
+per-node selection beats the benchmark by 8.4\%; a reader given only the second would
+conclude that it exactly matches it. Both readings are arithmetically correct. Every
+percentage quoted from here on therefore names its aggregation, and where the two disagree,
+both are given.
+
+The learned bottom-up network in the third row removes the hierarchical inconsistency
+completely, bringing a maximum parent--child discrepancy of 1,258,079 down to zero, and
+raises pooled MAE by 1.8\% and MASE from 1.149 to 1.203 in doing so. That reconciliation
+can cost accuracy rather than improve it is the first appearance of a trade-off taken up in
+full in Section~\ref{sec:res-recon}.
+
+\subsection{Complication two: informative covariates can still do damage}
+
+The second complication is sharper, because it contradicts what
+Section~\ref{sec:res-cov} goes on to establish. Supplying the same 24 covariate columns
+that help the gradient-boosting pipeline makes this system worse. Eight of the nine
+architectures degrade, several of them severely, and the assembled system falls from
+$-8.4$\% to $+6.4$\% before reconciliation.
+
+Two explanations were available: the columns carry no usable information, or the columns are
+informative and something about the path they travel into this particular system spoils
+them. The diagnostic runs were built to separate the two, by supplying covariates in order
+of how much of them is missing.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{llrr}
+\toprule
+{\bf Covariates supplied} & {\bf Missingness} & {\bf Unreconciled} & {\bf Reconciled} \\
+\midrule
+None & --- & $-8.4$\% & $-6.8$\% \\
+Plant availability only (1 column) & none at all & $-5.9$\% & $-2.9$\% \\
+Plant weather (10 columns) & 9 of 19 nodes empty & $+14.5$\% & $+0.5$\% \\
+All (24 columns) & extensive & $+6.4$\% & $+2.8$\% \\
+\bottomrule
+\end{tabular}
+\caption[Diagnostic ladder]{\textbf{The diagnostic ladder, ordered by how much is
+missing.} Percentages are relative to \naiveA{}, and positive is worse than the benchmark.
+The second row supplies a single column that is complete for all 19 nodes and requires no
+imputation whatsoever.}
+\label{tab:es-diag}
+\end{table}
+
+The second row decides it. One column, complete everywhere, nothing imputed, and the system
+still degrades. A paired comparison against the no-covariate run on the same 107 origins
+puts the damage at $+2.7$\% [$+0.3$, $+5.6$] unreconciled and $+4.1$\% [$+1.9$, $+6.6$]
+after reconciliation, and neither interval contains zero.
+
+Imputation of missing values is therefore excluded. The explanation lies in how external
+information enters this system rather than in the information itself, since the same columns
+are measurably useful in Section~\ref{sec:res-cov}. Identifying the responsible property
+lay outside the scope of the experiments reported here, and the candidate explanations are
+weighed in Chapter~\ref{ch:discussion}.
+
+The consequence for the chain is narrow but real. A covariate experiment can fail for
+reasons that have nothing to do with the covariate, so a negative covariate result is only
+interpretable within one system at a time. The covariate work of the next section is
+accordingly conducted entirely within the gradient-boosting pipeline, and its conclusions
+are claimed for that pipeline rather than for the covariates in general.
+
+%---------------------------------------------------------------------------------------
+\section{Covariates: restriction beats accumulation}
+\label{sec:res-cov}
+
+Since model capacity is not the constraint, the question becomes which information to
+supply and where to attach it. The natural starting point is to supply everything
+available to every node and let the learner sort it out. That turns out to be the worst
+configuration tested.
+
+\subsection{The selection ladder}
+
+Round~19 rebuilt the selection process as a ladder, each rung adding one stage, all five
+rungs executed inside a single run so that they share a baseline.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrrrrrc}
+\toprule
+{\bf Configuration} & {\bf Feat.} & {\bf F1} & {\bf F2} & {\bf F3} & {\bf F4} & {\bf Folds neg.} \\
+\midrule
+No covariates & 19 & --- & --- & --- & --- & baseline \\
+All weather and hydrology, shared & 63 & $-4.95$ & $-3.51$ & $+1.40$ & $+0.58$ & 2 of 4 \\
+Specified base plus wind vectors & 49 & $-4.72$ & $-3.24$ & $-2.20$ & $-1.81$ & 4 of 4 \\
+\quad with per-type gating & 49 & $-4.57$ & $-3.90$ & $-1.72$ & $-1.82$ & 4 of 4 \\
+\quad plus aggregate-node weather & 67 & $-4.59$ & $-4.45$ & $-5.25$ & $-1.84$ & 4 of 4 \\
+\quad plus Meridian hydro (delivered) & 84 & $-6.02$ & $-5.82$ & $-4.73$ & $-2.69$ & 4 of 4 \\
+\bottomrule
+\end{tabular}
+\caption[Selection ladder]{\textbf{Each stage of covariate selection, relative to the
+no-covariate baseline.} Figures are \pp{} of skill against \naiveA{}, and negative is
+better. Each fold's figure is the median over 19 nodes of the per-node percentage, so nodes
+are weighted equally. The second column is the number of features the configuration
+carries.}
+\label{tab:ladder}
+\end{table}
+
+Giving every node every available covariate is the only configuration on the ladder that
+fails the sign test, with two folds improving and two deteriorating. Cutting the pool back
+to the supervisor-specified base, with wind decomposed into vector components, drops
+fourteen features and converts that inconsistent result into a consistent three percentage
+points in every fold. More information made the model worse and discipline about which
+information reaches which node made it better, which sets the direction for the rest of the
+section: the remaining gains come from placing features correctly and from removing families
+that do not earn their place, not from finding more data.
+
+The third rung raises a problem rather than settling one. Per-type gating changes the
+19-node median by 0.01~\pp{}, and comparing the two gating modes against each other gives
+the same verdict, $-25.30$\% under \verb+strict+ against $-25.22$\% under \verb+dispatch+.
+On this metric, gating does nothing. Since gating was one of the two constraints imposed at
+the outset, a result of nothing needs explaining before the ladder can be trusted, and the
+explanation turns out to be the metric rather than the gating.
+
+\subsection{Why the 19-node median is the wrong instrument}
+\label{sec:res-cov-cat}
+
+The supervisors required that results be read per generator type rather than as a single
+median. Splitting the first elimination pass that way shows the requirement doing real
+work.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrrrrr}
+\toprule
+{\bf Family removed} & {\bf Wind (2)} & {\bf Hydro (9)} & {\bf Geo. (6)} & {\bf Top agg. (2)} & {\bf Median} \\
+\midrule
+Aggregate-node weather & $+0.37$ & $+1.26$ & $+2.34$ & $+5.02$ & $+1.14$ \\
+POCP, three columns & $-0.31$ & $+0.89$ & $+4.26$ & $+1.55$ & $+1.30$ \\
+Earlier storage version & $+0.34$ & $-3.35$ & $+3.65$ & $-1.89$ & $-1.43$ \\
+Registered capacity & $+0.42$ & $+0.75$ & $-0.76$ & $+0.49$ & $+0.49$ \\
+National demand & $-0.87$ & $+0.55$ & $-0.72$ & $-0.40$ & $-0.02$ \\
+\bottomrule
+\end{tabular}
+\caption[Elimination by generator category]{\textbf{The first elimination pass split by
+generator type.} Node counts are given in the header, and a positive figure means removal
+hurt that group.}
+\label{tab:bycat}
+\end{table}
+
+Removing the three POCP columns costs the six geothermal nodes 4.26\%, the largest single
+effect anywhere in the table, while the median records 1.30\% with an inconsistent sign.
+Maintenance scheduling matters to geothermal plant, which runs at near-constant output until
+it is taken offline, and barely matters to hydro, whose output varies for other reasons.
+Averaged over nineteen nodes, thirteen of which the family does not concern, a strong effect
+on six nodes becomes a weak and unreliable one.
+
+The earlier storage family shows the same arithmetic with opposite signs. Removing it helps
+hydro by 3.35\% and harms geothermal by 3.65\%; the two cancel in the median to $-1.43$\%
+and conceal that the family is actively mis-specified for one of the two groups.
+
+So the constraint handed down at the outset was not a stylistic preference. A single median
+over a hierarchy whose leaves run on different physics will hide effects of several per
+cent, and gating registering zero on the median says nothing about whether gating works.
+It also sets up the next step: if features have to be placed per node type, then the four
+nodes that have no physical plant of their own need features of their own.
+
+\subsection{Aggregate nodes need features built for them}
+
+Weather is read at plant coordinates, which the four aggregate nodes do not have. The
+\verb+agg_+ family supplies them with capacity-weighted averages of their leaf descendants'
+weather, with wind converted to vector components before averaging and the capacity weights
+recomputed at every timestamp.
+
+Removing that family costs the four aggregate nodes 6.46, 6.79, 3.34 and 2.11~\pp{} of
+skill in the four folds, all in the same direction, pooling to 4.18. The fifteen leaf nodes
+are unaffected, which is what the construction predicts: the family reaches only the
+aggregate nodes, so it should move only those. Carried to the test period, the same
+configuration loses 5.17\% of pooled MAE with a paired interval of [$+3.39$, $+6.83$], and
+each of the three principal aggregate nodes gives up more than 9\%.
+
+This is the one covariate result that is large, consistent across folds, confirmed out of
+sample, and mechanically explicable at the same time, and it is also the result that most
+directly rewards taking the hierarchy seriously as structure rather than as nineteen
+separate series.
+
+\subsection{Five of six families do not earn their place}
+
+If placing features well is what pays, the obvious test is how many of the families being
+carried are doing any work at all. Two elimination passes removed each family from the full
+set in turn and measured the damage.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrrrrrc}
+\toprule
+{\bf Family removed} & {\bf F1} & {\bf F2} & {\bf F3} & {\bf F4} & {\bf Mean} & {\bf Verdict} \\
+\midrule
+\multicolumn{7}{l}{\emph{First pass}} \\
+Aggregate-node weather & $+1.49$ & $+1.63$ & $+0.61$ & $+0.82$ & $+1.14$ & keep \\
+POCP, three columns & $+0.34$ & $+1.58$ & $+3.66$ & $-0.40$ & $+1.30$ & inconsistent \\
+Registered capacity & $+0.68$ & $+0.79$ & $+0.51$ & $-0.03$ & $+0.49$ & inconsistent \\
+National demand & $+0.35$ & $+0.36$ & $+0.08$ & $-0.87$ & $-0.02$ & inconsistent \\
+Earlier storage version & $+0.52$ & $+0.95$ & $-6.17$ & $-1.01$ & $-1.43$ & inconsistent \\
+\midrule
+\multicolumn{7}{l}{\emph{Second pass, on the survivors}} \\
+Aggregate-node weather & $+0.85$ & $+0.14$ & $+0.26$ & $+1.23$ & $+0.62$ & keep \\
+POCP & $+0.26$ & $-0.49$ & $-0.35$ & $+0.25$ & $-0.08$ & inconsistent \\
+Registered capacity & $-0.15$ & $-0.48$ & $+0.16$ & $+0.44$ & $-0.01$ & inconsistent \\
+National demand & $-0.02$ & $+0.23$ & $+0.32$ & $+0.11$ & $+0.16$ & inconsistent \\
+\bottomrule
+\end{tabular}
+\caption[Backward elimination]{\textbf{Two passes of backward elimination.} A positive
+figure means removal hurt, so the family was doing work. Only aggregate-node weather hurts
+in all four folds, in both passes.}
+\label{tab:backward}
+\end{table}
+
+Exactly one family of six clears the sign rule, in both passes. Several of those that fail
+it have large four-fold means, and the POCP row of the first pass has a larger mean than the
+family that was kept, yet one fold moves the other way. The previous subsection explains
+why that is the right verdict and not merely a cautious one: POCP matters intensely to six
+nodes and the median cannot see it, so the median's inconsistency is real information about
+the median, not about POCP.
+
+\subsection{Testing the principle by adding instead of removing}
+\label{sec:res-cov-neg}
+
+Everything so far points one way, that this pipeline wants few and well-placed features.
+A principle established by removing things should be tested by adding things, and
+Rounds~21 and~22 did that. The asymmetry noted in Section~\ref{sec:exp-negative} governs
+how their results read: for an addition, insufficient evidence means do not add.
+
+Round~21 tested cloud cover, radiation, dew point, evapotranspiration and soil moisture in
+three combinations, with four-fold means of $+0.09$, $+0.31$ and $+0.36$~\pp{}. All three
+have inconsistent signs, all three are mildly harmful on average, and all three sit inside
+the $\pm 0.6$~\pp{} noise floor of Section~\ref{sec:res-protocol}. Insufficient evidence,
+so the five variables stay out.
+
+Round~22 produced a stronger verdict, and a more instructive one.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrrrrrc}
+\toprule
+{\bf Group} & {\bf F1} & {\bf F2} & {\bf F3} & {\bf F4} & {\bf Mean} & {\bf Verdict} \\
+\midrule
+19-node median & $+0.39$ & $+0.71$ & $+2.83$ & $+0.48$ & $+1.10$ & eliminate \\
+Hydro (9) & $+1.22$ & $+1.51$ & $+3.64$ & $+0.75$ & $+1.78$ & harmful \\
+Geothermal (6) & $-3.11$ & $-1.60$ & $-1.62$ & $-0.49$ & $-1.71$ & helpful \\
+Wind (2) & $+0.62$ & $+0.66$ & $+0.74$ & $-1.31$ & $+0.18$ & inconsistent \\
+Top aggregates (2) & $-1.28$ & $+0.33$ & $+3.48$ & $+0.72$ & $+0.81$ & inconsistent \\
+\bottomrule
+\end{tabular}
+\caption[Snowpack by category]{\textbf{South Island snowpack, by generator category.}
+Positive means adding the family hurt. The family was motivated by an effect on hydro
+scheduling, and hydro is the group it damages most.}
+\label{tab:snow}
+\end{table}
+
+The snowpack family rests on a specific physical argument. South Island snowmelt feeds South
+Island inflow, which affects national dispatch, which affects where Mercury's hydro stations
+sit in the merit order. If that chain operated, hydro is where the benefit should appear.
+Hydro is instead the worst-affected group, harmed in all four folds and by 1.78\% on
+average, so the motivation is not borne out. The family does help the six geothermal nodes
+in all four folds, which was not predicted and which no mechanism available to the
+experiment supports; geothermal output is largely independent of hydrology, so the most
+economical reading is that three slowly varying columns act as a weak seasonal proxy for
+those nodes, a role already filled by features the model carries. On that reading the result
+belongs to this dataset rather than to the physics, and it was not pursued.
+
+Building the family was prompted by an observation that explains why an existing family had
+been weaker than expected: the original snow features covered the Taupo and Waikato
+catchments, which have had essentially no snow since 2021, so for the whole study period
+that family had been supplying a constant plus a slow trend rather than snow information.
+
+The pair of rounds completes the covariate argument in the form it needs. Restriction
+helped, placement helped, and the two attempts to enlarge the pool failed, one for want of
+evidence and one against its own stated mechanism. What the covariate work leaves behind is
+a model that is accurate node by node and inconsistent as a hierarchy, with a maximum
+parent--child discrepancy of 107,623~kWh. Repairing that is the next link.
+
+%---------------------------------------------------------------------------------------
+\section{Reconciliation: coherence has a price}
+\label{sec:res-recon}
+
+\subsection{Two of four projections are worse than doing nothing}
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+{\bf Method} & {\bf MAE} & {\bf vs \naiveA{}} & {\bf Coherence} & {\bf Negatives} \\
+\midrule
+Unreconciled & 9,240 & $-34.2$\% [$-37.7$, $-30.5$] & 107,623 & 0\% \\
+Bottom-up & 9,525 & $-32.2$\% [$-36.0$, $-28.3$] & 0 & 0\% \\
+OLS & 9,601 & $-31.7$\% [$-35.4$, $-27.6$] & 0 & 0.970\% \\
+WLS & 8,922 & $-36.5$\% [$-40.0$, $-32.9$] & 0 & 0.400\% \\
+MinT & {\bf 8,796} & {\bf $-37.4$\% [$-40.5$, $-34.1$]} & 0 & 0.870\% \\
+\bottomrule
+\end{tabular}
+\caption[Four reconcilers]{\textbf{The four reconcilers on the delivered base forecasts.}
+Intervals are paired bootstrap over the 107 forecast origins. The final column is the
+fraction of reconciled values below zero.}
+\label{tab:recon}
+\end{table}
+
+Bottom-up and OLS both end up worse than the forecasts they were applied to. The coherence
+constraint moves error from nodes that were estimated well onto nodes that were estimated
+badly, and a projection that ignores how reliable each node is pays that cost without
+getting anything back. Weighting by residual variance recovers it and weighting by the full
+residual covariance recovers slightly more. The ordering held every time it was re-checked
+after a change of base model, which matters because the covariance is re-estimated on each
+occasion and the ordering was not guaranteed to survive.
+
+The first appearance of this trade-off was in Section~\ref{sec:res-arch}, where a learned
+bottom-up network bought coherence at a cost of 1.8\% of MAE. Table~\ref{tab:recon} shows
+that the cost is not inherent to reconciliation but specific to projections that treat the
+nodes as equally reliable.
+
+\subsection{Where the price is paid}
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrrrrr}
+\toprule
+{\bf Level} & {\bf Unrec.} & {\bf BU} & {\bf OLS} & {\bf WLS} & {\bf MinT} \\
+\midrule
+Company & 0.835 & 0.991 & 0.841 & 0.861 & {\bf 0.838} \\
+Island & 0.636 & 0.696 & 0.717 & 0.634 & {\bf 0.633} \\
+Fuel type & 0.901 & 0.772 & 1.086 & 0.773 & {\bf 0.761} \\
+Station & {\bf 0.807} & {\bf 0.807} & 1.051 & 0.844 & 0.856 \\
+\bottomrule
+\end{tabular}
+\caption[MASE by level]{\textbf{MASE by hierarchy level.} MinT is best at the three upper
+levels and worse than no reconciliation at all at the station level.}
+\label{tab:bylevel}
+\end{table}
+
+MinT wins at the company, island and fuel-type levels and loses at the station level, where
+leaving the forecasts alone is better. The burden has to land somewhere, and the leaves are
+where it has to land, since the aggregates are sums of the leaves. A trading application
+concerned with aggregate volumes should use MinT; one concerned with individual units would
+reach the opposite conclusion from the same table. This is the same lesson as
+Section~\ref{sec:res-arch}'s two aggregations, arriving from a different direction: the
+question ``which method is best'' is incomplete until the level and the metric are named.
+
+\subsection{An open defect, and an attempt to improve the weights}
+
+Every projection that weights nodes unequally produces negative generation: 0.970\% of
+values under OLS, 0.870\% under MinT, 0.400\% under WLS. The base forecasts contain none,
+because they are clipped at zero during inference, and bottom-up contains none, because it
+only adds non-negative leaf values together. Negative output is physically impossible, so
+this is a defect of the delivered system rather than a curiosity.
+
+Nothing attempted in this work moved it. The hyperparameter search of
+Section~\ref{sec:res-tuning} left it at 0.870\% against 0.889\% before tuning, and the
+early-stopping repair in that section, which produced a genuinely out-of-sample residual set
+for the covariance estimate and might have been expected to help, left it there too. All
+three weighted projections are unconstrained linear maps, and an unconstrained linear map of
+non-negative inputs can return negative outputs. Removing the negatives needs reconciliation
+under an explicit non-negativity constraint, a quadratic program rather than a closed form,
+which was not attempted here.
+
+A separate attempt to improve the weights themselves started from the observation that a
+single covariance matrix spans all 48 forecast steps although the error structure at one
+step ahead and at 48 steps ahead is not the same.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrr}
+\toprule
+{\bf Grouping} & {\bf vs pooled} & {\bf Negatives} \\
+\midrule
+Pooled (current) & --- & 0.920\% \\
+Blocks of 16 steps & $-0.52$\% [$-1.21$, $+0.16$] & 0.808\% \\
+Blocks of 8 steps & $-0.56$\% [$-1.47$, $+0.29$] & 0.756\% \\
+Blocks of 4 steps & $-0.87$\% [$-2.18$, $+0.36$] & 0.723\% \\
+One per step & $-0.46$\% [$-2.68$, $+1.65$] & 0.609\% \\
+\bottomrule
+\end{tabular}
+\caption[Horizon-grouped weights]{\textbf{Estimating the reconciliation weights separately
+by forecast horizon.} Every point estimate favours grouping and no interval excludes zero.}
+\label{tab:horizgroup}
+\end{table}
+
+All four granularities improve on the pooled matrix, the improvement holds for both base
+models tested, and the eight resulting cells agree in sign. No interval excludes zero and
+the per-origin win rate never exceeds 58\%, so the verdict is insufficient evidence and the
+grouping was not adopted. Applying the same grouping to the WLS weights instead changes
+nothing at all, by at most 0.1\% and with inconsistent sign, which locates whatever effect
+exists in the correlation structure between nodes rather than in the individual variances.
+
+The granularity was selected inside the validation period, split chronologically in half,
+fitting on one half and scoring on the other in both directions, and that procedure chose
+one matrix per step. On the test period the finest granularity is not the best; blocks of
+four steps are. Both halves come from the same three-month window, so a per-step
+idiosyncrasy of that window transfers between the halves while failing to transfer to a
+later window, and a split that shares a window cannot detect it. Choosing a granularity
+properly needs a third independent window, which this design does not have, and using the
+test period for the choice would have been selection on the test set. The defect is in the
+selection design and it is reported here rather than in the discussion because it bounds how
+far Table~\ref{tab:horizgroup} can be trusted.
+
+With a coherent hierarchy and a reconciler chosen, the pipeline was complete enough to
+answer the two questions the supervisors had asked of it.
+
+%---------------------------------------------------------------------------------------
+\section{Horizon: the long-range gain is not available in practice}
+\label{sec:res-horizon}
+
+The first question was whether the pipeline extends from the next day to the next
+fortnight. It does, but the covariates stop paying for themselves, and whether they pay at
+all depends on an assumption about what a forecaster knows.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrr}
+\toprule
+{\bf Horizon} & {\bf Read at origin only} & {\bf Read at target time} \\
+\midrule
+24 hours (48 steps) & --- & current configuration \\
+Two weeks (672 steps) & $+1.0$\% & $-3.5$\% \\
+\bottomrule
+\end{tabular}
+\caption[Horizon extension]{\textbf{Extending the horizon to two weeks.} Figures are the
+change in MAE from adding the covariates at that horizon. Negative is an improvement, so
+$+1.0$\% means the covariates are a net burden.}
+\label{tab:horizon}
+\end{table}
+
+Read only at the forecast origin, which is the discipline a live system must obey, the
+covariates become a net burden at two weeks. Read at the target time, which requires weather
+information that a forecaster standing at the origin does not possess, they help by 3.5\%.
+The entire covariate benefit at long range therefore rests on information that is not
+available when the forecast is issued. At 24 hours the gap between the two readings is small
+enough not to affect any conclusion in this chapter, and the supervisors agreed on
+2026-09-11 that forecast vintage would be set aside at this stage.
+
+%---------------------------------------------------------------------------------------
+\section{Hyperparameters, and a defect found while tuning}
+\label{sec:res-tuning}
+
+The second question was what had been left on the table by never tuning the learner. The
+answer is a modest amount, and the search turned up something larger on the way.
+
+\subsection{Round one: two parameters, and a trap in the evidence}
+
+The hand-set configuration ranked fifth of the sixteen sampled, and the three that beat it
+agreed on two settings: each used the lowest learning rate on the grid and the largest
+minimum leaf size. Both point the same way, that the original configuration trained too
+aggressively, and the selected number of boosting rounds agrees, rising from 3,073 for the
+incumbent to between 4,900 and 6,000 for the leaders.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrrrrrc}
+\toprule
+{\bf Configuration} & {\bf F1} & {\bf F2} & {\bf F3} & {\bf F4} & {\bf Mean} & {\bf Folds neg.} \\
+\midrule
+$\eta$ 0.03, leaf 400, feat.\ 0.70 & $-0.80$ & $-0.50$ & $-0.17$ & $-0.43$ & $-0.47$ & 4 of 4 \\
+$\eta$ 0.03, leaf 400, feat.\ 1.00 & $-0.47$ & $-0.38$ & $-0.20$ & $+0.29$ & $-0.19$ & 3 of 4 \\
+$\eta$ 0.03, 63 leaves, leaf 400 & $-0.47$ & $+0.43$ & $-0.35$ & $-0.13$ & $-0.13$ & 3 of 4 \\
+Hand-set incumbent & $0.00$ & $0.00$ & $0.00$ & $0.00$ & $0.00$ & 0 of 4 \\
+\bottomrule
+\end{tabular}
+\caption[Round-one confirmation]{\textbf{Round one on all four folds,} as \pp{} of skill
+relative to the hand-set configuration. Only the first configuration improves in every
+fold; the other two have better-looking means than their fold pattern justifies.}
+\label{tab:tune1}
+\end{table}
+
+The winner's four-fold mean of $-0.47$~\pp{} is smaller than the noise floor established in
+Section~\ref{sec:res-protocol}, which needs stating plainly rather than being left for a
+reader to notice. The noise floor governs whether a single reading can be interpreted; the
+decision here rests on four independent folds agreeing in sign, a different argument whose
+strength does not depend on the size of the effect, and it was confirmed afterwards on the
+test period with an interval that excludes zero. The effect is small and it is real.
+
+Only two of the six parameters are supported. The other four moved with the winning
+configuration without evidence behind them, and the marginal means that appear to support
+one of them do not survive a check: the apparent 0.71~\pp{} effect of the bagging fraction
+collapses to 0.13~\pp{} once the learning rate is held fixed, because the random sample had
+paired the two. The lesson that marginal means from a small random sample are uninterpretable
+until co-occurrence has been checked is taken up in Chapter~\ref{ch:discussion}.
+
+\subsection{Round two: one plateau and one gradient}
+
+Both supported parameters sat at the edge of the round-one grid, which usually means the
+optimum lies outside it. Extending the grid showed the two directions behaving quite
+differently.
+
+The minimum leaf size and the leaf count are flat. At a learning rate of 0.03, four
+configurations spanning leaf sizes from 400 to 1,600 and leaf counts of 127 and 255 fall
+within a range of 0.30~\pp{} and in no particular order, so the round-one winner sat at the
+edge of a plateau rather than on a gradient.
+
+The learning rate is a gradient and it continues past the round-one grid. Lowering it from
+0.03 to 0.005 gains a further $-0.50$~\pp{} across all four folds, at the cost of 25,000
+boosting rounds instead of 3,700. Two cells in that confirmation hit the 40,000-round
+ceiling without early stopping triggering, both at the lowest learning rate on the largest
+fold; truncation leaves a model undertrained and so understates its score, which means the
+winner's four-fold agreement stands and is conservative while the runner-up's single
+positive fold cannot be relied upon.
+
+\subsection{The round-two winner failed on deployment, and why}
+
+Trained as the delivered model and scored on the test period, the round-two winner was
+worse than the round-one winner rather than better, on the validation period as well as on
+the test period. Either the cross-validation result was wrong or something differed between
+measuring a configuration and deploying it.
+
+The quantity that settles this is the product of the selected number of boosting rounds and
+the learning rate, which measures how far a model actually trained. Under cross-validation
+the two learning rates receive comparable budgets, 110.8 and 126.8, so the comparison is
+between learning rates. Under the delivery script the budgets are 45.9 and 30.8, so the
+lower learning rate receives a third less training than the higher one and the comparison is
+confounded with how far each model trained. The reason is that the two scripts stop on
+different data: the delivery script on a separate validation block of 105 origins, the
+tuning scripts on the last 15\% of the training window, roughly 970 origins. A small
+stopping set gives a noisy validation curve that triggers earlier, and the effect grows as
+the learning rate falls. The deployed model was undertrained rather than outperformed.
+
+Aligning the two rules improved both configurations, and improved the starved one by about
+twice as much.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{llrr}
+\toprule
+{\bf Configuration} & & {\bf Unreconciled} & {\bf With MinT} \\
+\midrule
+$\eta = 0.03$ & aligned vs original & $-1.03$\% [$-1.66$, $-0.42$] & $-1.22$\% [$-1.90$, $-0.56$] \\
+$\eta = 0.005$ & aligned vs original & $-2.48$\% [$-3.52$, $-1.43$] & $-2.05$\% [$-2.88$, $-1.22$] \\
+\bottomrule
+\end{tabular}
+\caption[Effect of aligning early stopping]{\textbf{Aligning the delivery script's early
+stopping with the cross-validation rule.} All four intervals exclude zero. The lower
+learning rate, which the original rule starved more severely, gains roughly twice as much.}
+\label{tab:esfix}
+\end{table}
+
+That the gain scales with how badly each configuration was starved is the strongest
+available evidence that the diagnosis is the right one, because the budget figures predicted
+that pattern before the experiment was run. The comparison between the two learning rates
+then reverses.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrr}
+\toprule
+{\bf Early-stopping rule} & {\bf Unreconciled} & {\bf With MinT} \\
+\midrule
+Original (validation block) & $+0.51$\% [$-0.16$, $+1.22$] & $+0.66$\% [$-0.12$, $+1.51$] \\
+Aligned (training-window tail) & $-0.96$\% [$-1.39$, $-0.50$] & $-0.17$\% [$-0.84$, $+0.47$] \\
+\bottomrule
+\end{tabular}
+\caption[Learning rate under each rule]{\textbf{$\eta = 0.005$ against $\eta = 0.03$ under
+each early-stopping rule.} Negative favours the lower learning rate. Under the original rule
+the sign is wrong; under the aligned rule the lower learning rate is significantly better
+unreconciled and indistinguishable after MinT.}
+\label{tab:lrflip}
+\end{table}
+
+The cross-validation result was correct and the delivery protocol was wrong. Under the
+aligned rule the lower learning rate is better by 0.96\% on the base forecasts, close to
+what cross-validation had predicted, and after MinT the two cannot be separated.
+
+\subsection{What was adopted, and where the gain came from}
+
+Delivery uses a learning rate of 0.03 rather than 0.005, together with the aligned
+early-stopping rule. After reconciliation, which is what the system delivers, the two
+learning rates are indistinguishable, while the lower one needs 18,556 boosting rounds and
+110 minutes of training against 3,296 rounds and 20 minutes. An application needing the
+unreconciled base forecasts, where the difference is significant, would choose the lower
+rate.
+
+\begin{table}[htp]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+{\bf Version} & {\bf Unreconciled} & {\bf With MinT} & {\bf MinT MAE} \\
+\midrule
+Before tuning & $-32.9$\% & $-35.2$\% & 9,110 \\
+Round-one winner, original rule & $-33.6$\% & $-36.6$\% & 8,906 \\
+Round-two winner, original rule & $-33.2$\% & $-36.2$\% & 8,965 \\
+Round-one winner, aligned rule (adopted) & $-34.2$\% & {\bf $-37.4$\%} & {\bf 8,797} \\
+Round-two winner, aligned rule & $-34.9$\% & $-37.5$\% & 8,781 \\
+\bottomrule
+\end{tabular}
+\caption[Tuning summary]{\textbf{The five model versions evaluated on the test period.}
+Percentages are against \naiveA{}.}
+\label{tab:tunesummary}
+\end{table}
+
+Against the configuration in place before any tuning, the adopted version improves pooled
+MAE by 3.61\% with a paired interval of [$-4.69$, $-2.47$] after reconciliation, winning on
+75 of the 107 origins. Of the 2.2~\pp{} of skill separating the two, roughly 1.4 came from
+the round-one search, 0.8 from aligning the early-stopping rule, and 0.1 from the round-two
+search, which the intervals cannot distinguish from zero.
+
+The largest single gain in this group came from repairing a defect in the training code
+rather than from choosing better hyperparameters, and the defect only became visible because
+a configuration that had won on cross-validation lost on deployment. That is the same shape
+as the result which opened the chapter, where a feature ranking that held on one validation
+block reversed on the test period, and both belong to the discussion in
+Chapter~\ref{ch:discussion}.

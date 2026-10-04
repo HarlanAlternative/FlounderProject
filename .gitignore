@@ -1,0 +1,12 @@
+# LaTeX build products (sources are tracked; the original compiled PDF stays on disk untracked)
+*.aux
+*.log
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.out
+*.bbl
+*.blg
+*.pdf
+build/
